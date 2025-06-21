@@ -73,5 +73,5 @@ export default function stripJsonComments(jsonString: string, { whitespace = tru
         }
     }
 
-    return result + (isInsideComment ? strip(jsonString.slice(offset)) : jsonString.slice(offset));
+    return (result + (isInsideComment ? strip(jsonString.slice(offset)) : jsonString.slice(offset))).trim();
 }
