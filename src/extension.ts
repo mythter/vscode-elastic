@@ -11,10 +11,13 @@ import { ElasticMatches } from './ElasticMatches';
 import axios, { AxiosError, AxiosResponse } from 'axios';
 import stripJsonComments from './helpers';
 import { JsonPanel } from './jsonPanel';
+import * as https from 'https';
+import * as tls from 'tls';
 const jsonPanel = new JsonPanel();
 
 export async function activate(context: vscode.ExtensionContext) {
     getHost(context);
+    getCert(context);
     const languages = ['es', 'elasticsearch'];
     context.subscriptions.push(vscode.languages.registerCodeLensProvider(languages, new ElasticCodeLensProvider(context)));
 
@@ -53,6 +56,7 @@ export async function activate(context: vscode.ExtensionContext) {
             decoration.UpdateDecoration(esMatches);
         }
     });
+
     let esCompletionHover = new ElasticCompletionItemProvider(context);
 
     context.subscriptions.push(vscode.languages.registerCompletionItemProvider(languages, esCompletionHover, '/', '?', '&', '"'));
@@ -70,6 +74,12 @@ export async function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(
         vscode.commands.registerCommand('extension.setHost', () => {
             setHost(context);
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('extension.setCert', () => {
+            setCert(context);
         }),
     );
 
@@ -102,7 +112,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 let l = em.Method.Range.start.line + 1;
                 const editor = vscode.window.activeTextEditor;
                 const config = vscode.workspace.getConfiguration('editor');
-                const tabSize = +(config.get('tabSize') as number);
+                const tabSize = (config.get('elasticsearch.indentTabSize') ?? vscode.workspace.getConfiguration('editor').get('tabSize')) as number;
 
                 editor!.edit(editBuilder => {
                     if (em.HasBody) {
@@ -133,12 +143,77 @@ export function getHost(context: vscode.ExtensionContext): string {
     return context.workspaceState.get('elasticsearch.host') || vscode.workspace.getConfiguration().get('elasticsearch.host', 'localhost:9200');
 }
 
+async function setCert(context: vscode.ExtensionContext): Promise<string | undefined> {
+    let pathToCert: string | undefined;
+
+    const option = await vscode.window.showQuickPick(['📂 Choose File', '⌨️ Enter file path'], {
+        placeHolder: 'Select how you want to specify certificate file path',
+    });
+
+    if (!option) return;
+
+    if (option.startsWith('📂')) {
+        const fileUris = await vscode.window.showOpenDialog({
+            canSelectMany: false,
+            openLabel: 'Choose File',
+            filters: {
+                'All files': ['*'],
+            },
+        });
+
+        if (fileUris && fileUris.length > 0) {
+            pathToCert = fileUris[0].fsPath;
+        }
+    } else {
+        pathToCert = await vscode.window.showInputBox({
+            prompt: 'Enter certificate file path',
+            ignoreFocusOut: true,
+            value: getCert(context),
+        });
+    }
+
+    if (pathToCert && !fs.existsSync(pathToCert!)) {
+        vscode.window.showErrorMessage(`file at path "${pathToCert}" does not exist`);
+    } else {
+        context.workspaceState.update('elasticsearch.certFilePath', pathToCert);
+        vscode.workspace.getConfiguration().update('elasticsearch.certFilePath', pathToCert);
+    }
+
+    return pathToCert;
+}
+
+export function getCert(context: vscode.ExtensionContext): string | undefined {
+    return context.workspaceState.get('elasticsearch.certFilePath') || vscode.workspace.getConfiguration().get('elasticsearch.certFilePath');
+}
+
 export async function executeQuery(context: vscode.ExtensionContext, resultsProvider: ElasticContentProvider, em: ElasticMatch) {
     const host = getHost(context);
+    const pathToCert = getCert(context);
     const startTime = new Date().getTime();
 
     const config = vscode.workspace.getConfiguration();
-    var asDocument = config.get('elasticsearch.showResultAsDocument');
+    let asDocument = config.get('elasticsearch.showResultAsDocument');
+    let skipCertVerification = (config.get('elasticsearch.skipSslCertificateVerification') as boolean) ?? false;
+    let ignoreHostnameMismatch = (config.get('elasticsearch.ignoreHostnameMismatch') as boolean) ?? false;
+    let tabSize = (config.get('elasticsearch.indentTabSize') ?? vscode.workspace.getConfiguration('editor').get('tabSize')) as number;
+
+    const certData: string | undefined = await getCertData(pathToCert);
+
+    const agent = new https.Agent({
+        ca: certData,
+        rejectUnauthorized: !skipCertVerification,
+        checkServerIdentity: (host, cert) => {
+            const err = tls.checkServerIdentity(host, cert);
+            if (err) {
+                if (ignoreHostnameMismatch && err.message.includes('Hostname/IP does not match certificate')) {
+                    return undefined;
+                }
+                return err;
+            }
+            // no errors
+            return undefined;
+        },
+    });
 
     const sbi = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     sbi.text = '$(search) Executing query ...';
@@ -147,13 +222,20 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
     let response: any;
     try {
         const body = stripJsonComments(em.Body.Text);
-        let url = 'http://' + host + (em.Path.Text.startsWith('/') ? '' : '/') + em.Path.Text;
-        response = await axios({
+        let url = host + (em.Path.Text.startsWith('/') ? '' : '/') + em.Path.Text;
+
+        const request: any = {
             url,
             method: em.Method.Text as any,
-            data: body,
             headers: { 'Content-Type': em.IsBulk ? 'application/x-ndjson' : 'application/json' },
-        }).catch(error => error as AxiosError<any, any>);
+            httpsAgent: agent,
+        };
+
+        if (body) {
+            request.data = body;
+        }
+
+        response = await axios(request).catch(error => error as AxiosError<any, any>);
     } catch (error) {
         response = error;
     }
@@ -167,8 +249,6 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
     if (!results) results = data;
     if (asDocument) {
         try {
-            const config = vscode.workspace.getConfiguration('editor');
-            const tabSize = +(config.get('tabSize') as number);
             results = JSON.stringify(error.isAxiosError ? error.response?.data : data.data, null, tabSize);
         } catch (error: any) {
             results = data.data || error.response?.data || error.message;
@@ -177,6 +257,43 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
     } else {
         jsonPanel.render(results, `ElasticSearch Results[${endTime - startTime}ms]`);
     }
+}
+
+function getCertData(pathToCert: string | undefined): Promise<string | undefined> {
+    if (!pathToCert) return Promise.resolve(undefined);
+
+    return new Promise(resolve => {
+        fs.readFile(pathToCert, 'utf8', (err, data) => {
+            if (err) {
+                vscode.window.showErrorMessage(`Could not read certificate file at path "${pathToCert}"`);
+                resolve(undefined);
+                return;
+            }
+
+            if (!isCertValid(data)) {
+                vscode.window.showErrorMessage(`Certificate at path "${pathToCert}" is not valid`);
+                resolve(undefined);
+                return;
+            }
+
+            if (!data.includes('BEGIN CERTIFICATE')) {
+                const lines = data.match(/.{1,64}/g) || [];
+                resolve(`-----BEGIN CERTIFICATE-----\n${lines.join('\n')}\n-----END CERTIFICATE-----`);
+                return;
+            }
+
+            resolve(data);
+        });
+    });
+}
+
+function isCertValid(data: string): boolean {
+    const base64 = data.replace('-----BEGIN CERTIFICATE-----', '').replace('-----END CERTIFICATE-----', '').trim();
+
+    // check is Base64
+    const cleaned = base64.replace(/\s+/g, '');
+    const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/;
+    return base64Regex.test(cleaned);
 }
 
 function showResult(result: string, column?: vscode.ViewColumn): Thenable<void> {
