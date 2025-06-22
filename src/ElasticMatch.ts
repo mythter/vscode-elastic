@@ -42,6 +42,8 @@ export class ElasticMatch {
         while (editor.document.lineCount > ln) {
             var t = editor.document.lineAt(ln).text;
 
+            if (ln == line && !t.startsWith('{')) ElasticMatch.RegexMatch.lastIndex = 0;
+
             var m = ElasticMatch.RegexMatch.exec(t);
             if (m != null) break;
 

@@ -22,7 +22,13 @@ export class ElasticMatches {
             var trimedLine = line.text.trim();
             if (trimedLine.length == 0) continue;
 
-            if (matched && trimedLine.startsWith('{')) this.Matches[this.Matches.length - 1].HasBody = true;
+            if (matched) {
+                if (trimedLine.startsWith('{')) {
+                    this.Matches[this.Matches.length - 1].HasBody = true;
+                } else {
+                    ElasticMatch.RegexMatch.lastIndex = 0;
+                }
+            }
 
             matched = false;
             var match = ElasticMatch.RegexMatch.exec(line.text);
