@@ -126,11 +126,6 @@
 		},
 		"keybindings": [
 			{
-				"key": "ctrl+enter",
-				"command": "extension.execute",
-				"when": "editorTextFocus && resourceLangId == 'es'"
-			},
-			{
 				"command": "extension.execute",
 				"key": "alt+Enter",
 				"when": "editorTextFocus && resourceLangId==es"
