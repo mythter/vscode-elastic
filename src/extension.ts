@@ -246,23 +246,29 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
     const data = response as AxiosResponse<any>;
 
     let results = data.data ?? data;
+    let errorMessage = null;
 
     if (error?.isAxiosError) {
         let errors = (error as any).errors;
         if (errors) {
             for (let err in errors) {
                 vscode.window.showErrorMessage(errors[err]?.message);
+                return;
             }
         } else {
-            let errorMessage = error.response?.data || error.message || `Error occurred while sending the request. Status code: ${error.code}`;
-            vscode.window.showErrorMessage(errorMessage);
+            errorMessage = error.response?.data || error.message || `Error occurred while sending the request. Status code: ${error.code}`;
+            try {
+                errorMessage = JSON.stringify(errorMessage, null, tabSize);
+            } catch (error: any) {
+                vscode.window.showErrorMessage(errorMessage);
+                return;
+            }
         }
-        return;
     }
 
     if (asDocument) {
         try {
-            results = JSON.stringify(results, null, tabSize);
+            results = errorMessage ?? JSON.stringify(results, null, tabSize);
         } catch (error: any) {
             results = results || error.response?.data || error.message;
         }
