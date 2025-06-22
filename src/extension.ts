@@ -9,7 +9,7 @@ import { ElasticDecoration } from './ElasticDecoration';
 import { ElasticMatch } from './ElasticMatch';
 import { ElasticMatches } from './ElasticMatches';
 import axios, { AxiosError, AxiosResponse } from 'axios';
-import stripJsonComments from './helpers';
+import { normalizeTripleQuotedStrings, stripJsonComments } from './helpers';
 import { JsonPanel } from './jsonPanel';
 import * as https from 'https';
 import * as tls from 'tls';
@@ -221,7 +221,7 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
 
     let response: any;
     try {
-        const body = stripJsonComments(em.Body.Text);
+        const body = normalizeTripleQuotedStrings(stripJsonComments(em.Body.Text));
         let url = host + (em.Path.Text.startsWith('/') ? '' : '/') + em.Path.Text;
 
         const request: any = {

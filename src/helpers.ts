@@ -16,7 +16,18 @@ const isEscaped = (jsonString: string, quotePosition: number) => {
     return Boolean(backslashCount % 2);
 };
 
-export default function stripJsonComments(jsonString: string, { whitespace = true } = {}) {
+export function normalizeTripleQuotedStrings(input: string): string {
+    return input.replace(/"""([\s\S]*?)"""/g, (_, content) => {
+        const escaped = content
+            .replace(/\\/g, '\\\\')  // escaping \
+            .replace(/"/g, '\\"')    // escaping "
+            .replace(/\n/g, '\\n')   // escaping \n
+            .replace(/\r/g, '');     // removing \r
+        return `"${escaped}"`;
+    });
+}
+
+export function stripJsonComments(jsonString: string, { whitespace = true } = {}) {
     if (typeof jsonString !== 'string') {
         throw new TypeError(`Expected argument \`jsonString\` to be a \`string\`, got \`${typeof jsonString}\``);
     }
