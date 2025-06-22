@@ -42,6 +42,8 @@ export class ElasticMatch {
         while (editor.document.lineCount > ln) {
             var t = editor.document.lineAt(ln).text;
 
+			if (t.startsWith('//')) break;
+
             if (ln == line && !t.startsWith('{')) ElasticMatch.RegexMatch.lastIndex = 0;
 
             var m = ElasticMatch.RegexMatch.exec(t);
@@ -77,7 +79,7 @@ export class ElasticMatch {
         this.Body.Text = jsonText;
 
         try {
-            if (!this.IsBulk) JSON.parse(stripJsonComments(jsonText));
+            if (!this.IsBulk) JSON.parse(normalizeTripleQuotedStrings(stripJsonComments(jsonText)));
             this.HasBody = true;
             this.Range = new vscode.Range(this.Method.Range.start, this.Body.Range.end);
         } catch (error: any) {

@@ -15,12 +15,14 @@ export class ElasticMatches {
         this.Editor = editor;
         this.Matches = [];
 
+        ElasticMatch.RegexMatch.lastIndex = 0;
+
         var matched = false;
 
         for (var i = 0; i < editor.document.lineCount; i++) {
             var line = editor.document.lineAt(i);
             var trimedLine = line.text.trim();
-            if (trimedLine.length == 0) continue;
+            if (trimedLine.length == 0 || trimedLine.startsWith('//')) continue;
 
             if (matched) {
                 if (trimedLine.startsWith('{')) {
