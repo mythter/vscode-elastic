@@ -111,7 +111,7 @@ export async function activate(context: vscode.ExtensionContext) {
             try {
                 let l = em.Method.Range.start.line + 1;
                 const editor = vscode.window.activeTextEditor;
-                const config = vscode.workspace.getConfiguration('editor');
+                const config = vscode.workspace.getConfiguration();
                 const tabSize = (config.get('elasticsearch.indentTabSize') ?? vscode.workspace.getConfiguration('editor').get('tabSize')) as number;
 
                 editor!.edit(editBuilder => {
@@ -245,13 +245,26 @@ export async function executeQuery(context: vscode.ExtensionContext, resultsProv
     const error = response as AxiosError;
     const data = response as AxiosResponse<any>;
 
-    let results = data.data;
-    if (!results) results = data;
+    let results = data.data ?? data;
+
+    if (error?.isAxiosError) {
+        let errors = (error as any).errors;
+        if (errors) {
+            for (let err in errors) {
+                vscode.window.showErrorMessage(errors[err]?.message);
+            }
+        } else {
+            let errorMessage = error.response?.data || error.message || `Error occurred while sending the request. Status code: ${error.code}`;
+            vscode.window.showErrorMessage(errorMessage);
+        }
+        return;
+    }
+
     if (asDocument) {
         try {
-            results = JSON.stringify(error.isAxiosError ? error.response?.data : data.data, null, tabSize);
+            results = JSON.stringify(results, null, tabSize);
         } catch (error: any) {
-            results = data.data || error.response?.data || error.message;
+            results = results || error.response?.data || error.message;
         }
         showResult(results, vscode.window.activeTextEditor!.viewColumn! + 1);
     } else {
